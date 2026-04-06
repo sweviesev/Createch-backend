@@ -1,60 +1,69 @@
-from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Order, Project, Service, User, WalletTransaction
+from .models import (
+    Block, Category, Creator, DailyAnalytics, DeadlineNotification,
+    Follow, Match, Message, Order, OrderTimeline, PaymentMethod,
+    Report, Review, Service, SupportTicket, User, UserWallet, Withdrawal,
+)
 
 
 # ---------------------------------------------------------------------------
-# Auth Serializers
+# User Serializers
 # ---------------------------------------------------------------------------
-
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
-    confirm_password = serializers.CharField(write_only=True)
-
-    class Meta:
-        model = User
-        fields = [
-            'email', 'first_name', 'middle_name', 'last_name',
-            'phone', 'birth_date', 'role', 'password', 'confirm_password',
-        ]
-        extra_kwargs = {
-            'role': {'default': 'client'},
-        }
-
-    def validate(self, data):
-        if data['password'] != data.pop('confirm_password'):
-            raise serializers.ValidationError({'confirm_password': 'Passwords do not match.'})
-        return data
-
-    def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
-
 
 class UserSerializer(serializers.ModelSerializer):
-    full_name = serializers.ReadOnlyField()
+    display_name = serializers.ReadOnlyField()
 
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'first_name', 'middle_name', 'last_name',
-            'full_name', 'phone', 'birth_date', 'role', 'status',
-            'is_verified', 'reports', 'wallet_balance', 'date_joined',
+            'id', 'firebase_uid', 'email', 'first_name', 'middle_name',
+            'last_name', 'full_name', 'display_name', 'avatar_url', 'phone',
+            'birthdate', 'age', 'gender', 'nationality', 'address', 'role',
+            'language', 'notifications_enabled', 'id_number', 'id_document_url',
+            'id_front_url', 'id_back_url', 'id_selfie_url',
+            'street_address', 'barangay', 'city', 'province',
+            'postal_code', 'country', 'created_at',
+            'notifications_updated_at', 'orders_last_seen_at',
+            'follows_last_seen_at',
         ]
-        read_only_fields = ['id', 'wallet_balance', 'reports', 'date_joined', 'is_verified']
+        read_only_fields = ['id', 'created_at']
 
 
-class CreatachTokenSerializer(TokenObtainPairSerializer):
-    """Extends the JWT payload with role and full_name."""
+class UserMinimalSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for embedding user info in other responses."""
+    display_name = serializers.ReadOnlyField()
 
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-        token['role'] = user.role
-        token['full_name'] = user.full_name
-        token['email'] = user.email
-        return token
+    class Meta:
+        model = User
+        fields = ['firebase_uid', 'email', 'full_name', 'display_name', 'avatar_url', 'role']
+
+
+# ---------------------------------------------------------------------------
+# Creator Serializer
+# ---------------------------------------------------------------------------
+
+class CreatorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Creator
+        fields = [
+            'id', 'user_id', 'bio', 'skills', 'portfolio_url',
+            'experience_years', 'starting_price', 'turnaround_time',
+            'custom_skills', 'verification_status', 'response_time',
+            'cover_url', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# Category Serializer
+# ---------------------------------------------------------------------------
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'label', 'icon', 'color', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 # ---------------------------------------------------------------------------
@@ -62,58 +71,43 @@ class CreatachTokenSerializer(TokenObtainPairSerializer):
 # ---------------------------------------------------------------------------
 
 class ServiceSerializer(serializers.ModelSerializer):
-    creator_name = serializers.SerializerMethodField()
-
     class Meta:
         model = Service
         fields = [
-            'id', 'creator', 'creator_name', 'title', 'description',
-            'price', 'category', 'delivery_days', 'image_url',
-            'is_active', 'created_at', 'updated_at',
+            'id', 'creator_id', 'title', 'label', 'description',
+            'price', 'category', 'icon', 'image_url', 'is_public',
+            'target_client_id', 'is_deleted', 'created_at',
         ]
-        read_only_fields = ['id', 'creator', 'created_at', 'updated_at']
-
-    def get_creator_name(self, obj):
-        return obj.creator.full_name if obj.creator else ''
-
-    def create(self, validated_data):
-        # Automatically assign the logged-in creator
-        validated_data['creator'] = self.context['request'].user
-        return super().create(validated_data)
+        read_only_fields = ['id', 'created_at']
 
 
 # ---------------------------------------------------------------------------
-# Order Serializer
+# Order Serializers
 # ---------------------------------------------------------------------------
 
 class OrderSerializer(serializers.ModelSerializer):
-    client_name = serializers.ReadOnlyField()
-    creator_name = serializers.ReadOnlyField()
-
     class Meta:
         model = Order
         fields = [
-            'id', 'client', 'creator', 'service',
-            'service_title', 'price', 'image_url',
-            'status', 'requirements',
-            'client_name', 'creator_name',
+            'id', 'client_id', 'creator_id', 'service_title', 'price',
+            'status', 'client_name', 'creator_name', 'image_url',
+            'last_updated_by', 'preview_url', 'final_file_url',
+            'delivery_url', 'delivery_note',
+            'payment_method_used', 'payout_method_snapshot',
+            'escrow_status', 'escrow_amount',
+            'due_date', 'deadline_extension_days',
+            'deadline_extension_requested_at',
+            'deadline_extension_approved', 'deadline_extension_reason',
+            'auto_deadline_notification_sent', 'deadline_passed',
+            'estimated_completion_days', 'work_started_at',
+            'refund_requested_at', 'refund_approved',
+            'refund_responded_at', 'refund_reason',
+            'rating', 'review_comment', 'reviewed_at',
+            'is_deleted', 'deleted_at', 'deleted_by',
+            'deleted_by_client', 'deleted_by_creator',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'client', 'created_at', 'updated_at']
-
-    def create(self, validated_data):
-        # Auto-populate snapshot fields from the linked service
-        service = validated_data.get('service')
-        if service and not validated_data.get('service_title'):
-            validated_data['service_title'] = service.title
-        if service and not validated_data.get('price'):
-            validated_data['price'] = service.price
-        if service and not validated_data.get('image_url'):
-            validated_data['image_url'] = service.image_url
-        if service and not validated_data.get('creator'):
-            validated_data['creator'] = service.creator
-        validated_data['client'] = self.context['request'].user
-        return super().create(validated_data)
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class OrderStatusSerializer(serializers.ModelSerializer):
@@ -125,42 +119,160 @@ class OrderStatusSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
-# Project Serializer
+# OrderTimeline Serializer
 # ---------------------------------------------------------------------------
 
-class ProjectSerializer(serializers.ModelSerializer):
-    creator_name = serializers.SerializerMethodField()
-    platform_fee = serializers.ReadOnlyField()
-
+class OrderTimelineSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Project
+        model = OrderTimeline
         fields = [
-            'id', 'creator', 'creator_name', 'title', 'client_name',
-            'status', 'budget', 'platform_fee', 'deadline',
-            'description', 'admin_note', 'created_at', 'updated_at',
+            'id', 'order', 'event_type', 'actor_id',
+            'message', 'metadata', 'created_at',
         ]
-        read_only_fields = ['id', 'creator', 'platform_fee', 'created_at', 'updated_at']
-
-    def get_creator_name(self, obj):
-        return obj.creator.full_name if obj.creator else ''
-
-    def create(self, validated_data):
-        validated_data['creator'] = self.context['request'].user
-        return super().create(validated_data)
-
-
-# ---------------------------------------------------------------------------
-# Wallet Serializers
-# ---------------------------------------------------------------------------
-
-class WalletTransactionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = WalletTransaction
-        fields = ['id', 'transaction_type', 'amount', 'description', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
-class WalletActionSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=['deposit', 'withdraw'])
-    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=1)
-    description = serializers.CharField(max_length=255, required=False, default='')
+# ---------------------------------------------------------------------------
+# Review Serializer
+# ---------------------------------------------------------------------------
+
+class ReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Review
+        fields = [
+            'id', 'order', 'reviewer_id', 'reviewee_id',
+            'rating', 'comment', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# Message Serializer
+# ---------------------------------------------------------------------------
+
+class MessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Message
+        fields = [
+            'id', 'sender_id', 'receiver_id', 'content',
+            'is_read', 'media_url', 'is_deleted', 'service_data',
+            'from_smart_match', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# Follow Serializer
+# ---------------------------------------------------------------------------
+
+class FollowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Follow
+        fields = ['id', 'follower_id', 'following_id', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# Block Serializer
+# ---------------------------------------------------------------------------
+
+class BlockSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Block
+        fields = ['id', 'blocker_id', 'blocked_id', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# Report Serializer
+# ---------------------------------------------------------------------------
+
+class ReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Report
+        fields = ['id', 'reporter_id', 'reported_id', 'reason', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# Match Serializer
+# ---------------------------------------------------------------------------
+
+class MatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Match
+        fields = [
+            'id', 'client_id', 'creator_id', 'match_score',
+            'project_description', 'reasons', 'status', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# PaymentMethod Serializer
+# ---------------------------------------------------------------------------
+
+class PaymentMethodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentMethod
+        fields = ['id', 'user_id', 'method_type', 'masked_number', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# SupportTicket Serializer
+# ---------------------------------------------------------------------------
+
+class SupportTicketSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupportTicket
+        fields = [
+            'id', 'ticket_number', 'user_id', 'email', 'category',
+            'message', 'status', 'priority', 'user_role', 'user_info',
+            'admin_response', 'resolved_at', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# ---------------------------------------------------------------------------
+# UserWallet Serializer
+# ---------------------------------------------------------------------------
+
+class UserWalletSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserWallet
+        fields = ['id', 'user_id', 'wallet_type', 'account_name', 'account_number', 'is_active', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# Withdrawal Serializer
+# ---------------------------------------------------------------------------
+
+class WithdrawalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Withdrawal
+        fields = ['id', 'user_id', 'amount', 'status', 'method_type', 'account_details', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+# ---------------------------------------------------------------------------
+# DeadlineNotification Serializer
+# ---------------------------------------------------------------------------
+
+class DeadlineNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeadlineNotification
+        fields = ['id', 'order', 'notification_type', 'sent_to', 'sent_at', 'read_at']
+        read_only_fields = ['id', 'sent_at']
+
+
+# ---------------------------------------------------------------------------
+# DailyAnalytics Serializer
+# ---------------------------------------------------------------------------
+
+class DailyAnalyticsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DailyAnalytics
+        fields = ['id', 'creator_id', 'date', 'profile_views', 'service_clicks', 'created_at']
+        read_only_fields = ['id', 'created_at']

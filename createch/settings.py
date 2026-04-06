@@ -1,9 +1,10 @@
 from pathlib import Path
 from datetime import timedelta
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-createch-change-this-in-production'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-createch-change-this-in-production')
 
 DEBUG = True
 
@@ -18,7 +19,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third-party
     'rest_framework',
-    'rest_framework_simplejwt',
     'corsheaders',
     # Your app
     'marketplace',
@@ -54,10 +54,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'createch.wsgi.application'
 
+# Database — connect to Supabase PostgreSQL
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', 'postgres'),
+        'USER': os.environ.get('DB_USER', 'postgres'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'CreatechSystemPassword'),
+        'HOST': os.environ.get('DB_HOST', 'db.jimoqgnubndrmjtqqqyo.supabase.co'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
+        'OPTIONS': {
+            'sslmode': 'require',
+        },
     }
 }
 
@@ -79,22 +87,16 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-AUTH_USER_MODEL = 'marketplace.User'
+# No custom AUTH_USER_MODEL — we use Firebase/Supabase for auth,
+# the User model is an unmanaged model mapping to the Supabase "users" table.
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
+    'DEFAULT_AUTHENTICATION_CLASSES': [],
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10,
-}
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'PAGE_SIZE': 20,
 }
 
 CORS_ALLOW_ALL_ORIGINS = True

@@ -1,80 +1,102 @@
-from decimal import Decimal
-
-from django.db import transaction
+from django.db import models as db_models
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import Order, Project, Service, User, WalletTransaction
+from .models import (
+    Block, Category, Creator, DailyAnalytics, DeadlineNotification,
+    Follow, Match, Message, Order, OrderTimeline, PaymentMethod,
+    Report, Review, Service, SupportTicket, User, UserWallet, Withdrawal,
+)
 from .serializers import (
-    CreatachTokenSerializer,
+    BlockSerializer,
+    CategorySerializer,
+    CreatorSerializer,
+    DailyAnalyticsSerializer,
+    DeadlineNotificationSerializer,
+    FollowSerializer,
+    MatchSerializer,
+    MessageSerializer,
     OrderSerializer,
     OrderStatusSerializer,
-    ProjectSerializer,
-    RegisterSerializer,
+    OrderTimelineSerializer,
+    PaymentMethodSerializer,
+    ReportSerializer,
+    ReviewSerializer,
     ServiceSerializer,
+    SupportTicketSerializer,
     UserSerializer,
-    WalletActionSerializer,
-    WalletTransactionSerializer,
+    UserWalletSerializer,
+    WithdrawalSerializer,
 )
 
 
 # ---------------------------------------------------------------------------
-# Permissions helpers
+# User ViewSet
 # ---------------------------------------------------------------------------
 
-class IsCreator(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'creator'
+class UserViewSet(viewsets.ModelViewSet):
+    serializer_class = UserSerializer
+    queryset = User.objects.all()
 
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        return [permissions.AllowAny()]
 
-class IsAdminRole(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'admin'
+    def get_object(self):
+        """Allow lookup by firebase_uid as well as pk."""
+        lookup = self.kwargs.get(self.lookup_field)
+        try:
+            return User.objects.get(pk=lookup)
+        except (User.DoesNotExist, ValueError):
+            return User.objects.get(firebase_uid=lookup)
+
+    @action(detail=True, methods=['post'])
+    def suspend(self, request, pk=None):
+        """Admin action to suspend a user (set role to a suspended state)."""
+        user = self.get_object()
+        return Response({'message': f'User {user.email} suspend action received.'})
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        """Admin action to activate a user."""
+        user = self.get_object()
+        return Response({'message': f'User {user.email} activate action received.'})
 
 
 # ---------------------------------------------------------------------------
-# Auth Views
+# Creator ViewSet
 # ---------------------------------------------------------------------------
 
-class RegisterView(APIView):
-    """POST /api/auth/register/ — public, no auth required."""
-    permission_classes = [permissions.AllowAny]
+class CreatorViewSet(viewsets.ModelViewSet):
+    serializer_class = CreatorSerializer
+    queryset = Creator.objects.all()
 
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            return Response(
-                {
-                    'message': 'Account created successfully. Please verify your email.',
-                    'user': UserSerializer(user).data,
-                },
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def get_permissions(self):
+        return [permissions.AllowAny()]
 
-
-class LoginView(TokenObtainPairView):
-    """POST /api/auth/login/ — returns access + refresh JWT tokens."""
-    permission_classes = [permissions.AllowAny]
-    serializer_class = CreatachTokenSerializer
+    @action(detail=False, methods=['get'], url_path='by-uid/(?P<uid>[^/.]+)')
+    def by_uid(self, request, uid=None):
+        """GET /api/creators/by-uid/<firebase_uid>/"""
+        try:
+            creator = Creator.objects.get(user_id=uid)
+            return Response(CreatorSerializer(creator).data)
+        except Creator.DoesNotExist:
+            return Response({'detail': 'Creator not found.'}, status=status.HTTP_404_NOT_FOUND)
 
 
-class MeView(APIView):
-    """GET /api/auth/me/ — returns the current user's profile."""
+# ---------------------------------------------------------------------------
+# Category ViewSet
+# ---------------------------------------------------------------------------
 
-    def get(self, request):
-        return Response(UserSerializer(request.user).data)
+class CategoryViewSet(viewsets.ModelViewSet):
+    serializer_class = CategorySerializer
+    queryset = Category.objects.all()
 
-    def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def get_permissions(self):
+        return [permissions.AllowAny()]
 
 
 # ---------------------------------------------------------------------------
@@ -82,37 +104,20 @@ class MeView(APIView):
 # ---------------------------------------------------------------------------
 
 class ServiceViewSet(viewsets.ModelViewSet):
-    """
-    GET    /api/services/         — list all active services
-    POST   /api/services/         — create (creator only)
-    GET    /api/services/{id}/    — retrieve
-    PATCH  /api/services/{id}/    — update (owner or admin)
-    DELETE /api/services/{id}/    — delete (owner or admin)
-    """
     serializer_class = ServiceSerializer
 
     def get_queryset(self):
-        qs = Service.objects.select_related('creator').filter(is_active=True)
+        qs = Service.objects.filter(is_deleted=False)
         category = self.request.query_params.get('category')
         if category:
             qs = qs.filter(category=category)
+        creator_id = self.request.query_params.get('creator_id')
+        if creator_id:
+            qs = qs.filter(creator_id=creator_id)
         return qs
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated(), IsCreator()]
-
-    def destroy(self, request, *args, **kwargs):
-        service = self.get_object()
-        if request.user != service.creator and request.user.role != 'admin':
-            return Response(
-                {'detail': 'You do not have permission to delete this service.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        service.is_active = False
-        service.save()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return [permissions.AllowAny()]
 
 
 # ---------------------------------------------------------------------------
@@ -120,25 +125,20 @@ class ServiceViewSet(viewsets.ModelViewSet):
 # ---------------------------------------------------------------------------
 
 class OrderViewSet(viewsets.ModelViewSet):
-    """
-    GET    /api/orders/                      — list (filtered by user role)
-    POST   /api/orders/                      — place an order (client)
-    GET    /api/orders/{id}/                 — retrieve
-    POST   /api/orders/{id}/update_status/   — change status
-    """
     serializer_class = OrderSerializer
 
     def get_queryset(self):
-        user = self.request.user
-        if user.role == 'client':
-            return Order.objects.filter(client=user).select_related('client', 'creator', 'service')
-        elif user.role == 'creator':
-            return Order.objects.filter(creator=user).select_related('client', 'creator', 'service')
-        # Admin sees all
-        return Order.objects.all().select_related('client', 'creator', 'service')
+        qs = Order.objects.filter(is_deleted=False)
+        client_id = self.request.query_params.get('client_id')
+        creator_id = self.request.query_params.get('creator_id')
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+        if creator_id:
+            qs = qs.filter(creator_id=creator_id)
+        return qs
 
     def get_permissions(self):
-        return [permissions.IsAuthenticated()]
+        return [permissions.AllowAny()]
 
     @action(detail=True, methods=['post'], url_path='update_status')
     def update_status(self, request, pk=None):
@@ -151,135 +151,230 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 
 # ---------------------------------------------------------------------------
-# Project ViewSet
+# OrderTimeline ViewSet
 # ---------------------------------------------------------------------------
 
-class ProjectViewSet(viewsets.ModelViewSet):
-    """
-    GET    /api/projects/                  — list
-    POST   /api/projects/                  — create
-    GET    /api/projects/{id}/             — retrieve
-    PATCH  /api/projects/{id}/             — update
-    DELETE /api/projects/{id}/             — delete
-    POST   /api/projects/{id}/suspend/     — admin force-suspend
-    """
-    serializer_class = ProjectSerializer
+class OrderTimelineViewSet(viewsets.ModelViewSet):
+    serializer_class = OrderTimelineSerializer
 
     def get_queryset(self):
-        user = self.request.user
-        qs = Project.objects.select_related('creator')
-        if user.role == 'creator':
-            return qs.filter(creator=user)
-        # Clients and admins see all
-        return qs.all()
+        qs = OrderTimeline.objects.all()
+        order_id = self.request.query_params.get('order_id')
+        if order_id:
+            qs = qs.filter(order_id=order_id)
+        return qs
 
     def get_permissions(self):
-        return [permissions.IsAuthenticated()]
-
-    def destroy(self, request, *args, **kwargs):
-        project = self.get_object()
-        if request.user != project.creator and request.user.role != 'admin':
-            return Response(
-                {'detail': 'Permission denied.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return super().destroy(request, *args, **kwargs)
-
-    @action(detail=True, methods=['post'])
-    def suspend(self, request, pk=None):
-        if request.user.role != 'admin':
-            return Response({'detail': 'Admin only.'}, status=status.HTTP_403_FORBIDDEN)
-        project = self.get_object()
-        project.status = 'Suspended'
-        project.admin_note = request.data.get('admin_note', 'Force suspended by Administrator.')
-        project.save()
-        return Response(ProjectSerializer(project).data)
+        return [permissions.AllowAny()]
 
 
 # ---------------------------------------------------------------------------
-# Wallet View
+# Review ViewSet
 # ---------------------------------------------------------------------------
 
-class WalletView(APIView):
-    """
-    GET  /api/wallet/  — balance + recent transactions
-    POST /api/wallet/  — deposit or withdraw
-    """
+class ReviewViewSet(viewsets.ModelViewSet):
+    serializer_class = ReviewSerializer
 
-    def get(self, request):
-        transactions = WalletTransaction.objects.filter(user=request.user)[:20]
-        return Response({
-            'balance': str(request.user.wallet_balance),
-            'transactions': WalletTransactionSerializer(transactions, many=True).data,
-        })
-
-    def post(self, request):
-        serializer = WalletActionSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        action_type = serializer.validated_data['action']
-        amount = Decimal(str(serializer.validated_data['amount']))
-        description = serializer.validated_data.get('description', '')
-        user = request.user
-
-        with transaction.atomic():
-            u = User.objects.select_for_update().get(pk=user.pk)
-            if action_type == 'withdraw':
-                if u.wallet_balance < amount:
-                    return Response(
-                        {'detail': 'Insufficient funds.'},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                u.wallet_balance -= amount
-                tx_type = 'withdrawal'
-            else:
-                u.wallet_balance += amount
-                tx_type = 'deposit'
-            u.save()
-
-            tx = WalletTransaction.objects.create(
-                user=u,
-                transaction_type=tx_type,
-                amount=amount,
-                description=description or f'{tx_type.capitalize()} of ₱{amount}',
-            )
-
-        return Response(
-            {
-                'message': f'₱{amount} {tx_type} successful.',
-                'new_balance': str(u.wallet_balance),
-                'transaction': WalletTransactionSerializer(tx).data,
-            }
-        )
-
-
-# ---------------------------------------------------------------------------
-# Users ViewSet  (admin panel use)
-# ---------------------------------------------------------------------------
-
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    GET /api/users/       — admin: list all users
-    GET /api/users/{id}/  — admin: retrieve user
-    POST /api/users/{id}/suspend/ — admin: suspend a user
-    """
-    serializer_class = UserSerializer
-    queryset = User.objects.all()
+    def get_queryset(self):
+        qs = Review.objects.all()
+        reviewee_id = self.request.query_params.get('reviewee_id')
+        if reviewee_id:
+            qs = qs.filter(reviewee_id=reviewee_id)
+        return qs
 
     def get_permissions(self):
-        return [permissions.IsAuthenticated(), IsAdminRole()]
+        return [permissions.AllowAny()]
 
-    @action(detail=True, methods=['post'])
-    def suspend(self, request, pk=None):
-        user = self.get_object()
-        user.status = 'Suspended'
-        user.save()
-        return Response({'message': f'User {user.email} has been suspended.'})
 
-    @action(detail=True, methods=['post'])
-    def activate(self, request, pk=None):
-        user = self.get_object()
-        user.status = 'Active'
-        user.save()
-        return Response({'message': f'User {user.email} has been activated.'})
+# ---------------------------------------------------------------------------
+# Message ViewSet
+# ---------------------------------------------------------------------------
+
+class MessageViewSet(viewsets.ModelViewSet):
+    serializer_class = MessageSerializer
+
+    def get_queryset(self):
+        qs = Message.objects.filter(is_deleted=False)
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            qs = qs.filter(
+                db_models.Q(sender_id=user_id) | db_models.Q(receiver_id=user_id)
+            )
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# Follow ViewSet
+# ---------------------------------------------------------------------------
+
+class FollowViewSet(viewsets.ModelViewSet):
+    serializer_class = FollowSerializer
+
+    def get_queryset(self):
+        qs = Follow.objects.all()
+        follower_id = self.request.query_params.get('follower_id')
+        following_id = self.request.query_params.get('following_id')
+        if follower_id:
+            qs = qs.filter(follower_id=follower_id)
+        if following_id:
+            qs = qs.filter(following_id=following_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# Block ViewSet
+# ---------------------------------------------------------------------------
+
+class BlockViewSet(viewsets.ModelViewSet):
+    serializer_class = BlockSerializer
+
+    def get_queryset(self):
+        qs = Block.objects.all()
+        blocker_id = self.request.query_params.get('blocker_id')
+        if blocker_id:
+            qs = qs.filter(blocker_id=blocker_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# Report ViewSet
+# ---------------------------------------------------------------------------
+
+class ReportViewSet(viewsets.ModelViewSet):
+    serializer_class = ReportSerializer
+    queryset = Report.objects.all()
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# Match ViewSet
+# ---------------------------------------------------------------------------
+
+class MatchViewSet(viewsets.ModelViewSet):
+    serializer_class = MatchSerializer
+
+    def get_queryset(self):
+        qs = Match.objects.all()
+        client_id = self.request.query_params.get('client_id')
+        creator_id = self.request.query_params.get('creator_id')
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+        if creator_id:
+            qs = qs.filter(creator_id=creator_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# PaymentMethod ViewSet
+# ---------------------------------------------------------------------------
+
+class PaymentMethodViewSet(viewsets.ModelViewSet):
+    serializer_class = PaymentMethodSerializer
+
+    def get_queryset(self):
+        qs = PaymentMethod.objects.all()
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# SupportTicket ViewSet
+# ---------------------------------------------------------------------------
+
+class SupportTicketViewSet(viewsets.ModelViewSet):
+    serializer_class = SupportTicketSerializer
+
+    def get_queryset(self):
+        qs = SupportTicket.objects.all()
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# UserWallet ViewSet
+# ---------------------------------------------------------------------------
+
+class UserWalletViewSet(viewsets.ModelViewSet):
+    serializer_class = UserWalletSerializer
+
+    def get_queryset(self):
+        qs = UserWallet.objects.all()
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# Withdrawal ViewSet
+# ---------------------------------------------------------------------------
+
+class WithdrawalViewSet(viewsets.ModelViewSet):
+    serializer_class = WithdrawalSerializer
+
+    def get_queryset(self):
+        qs = Withdrawal.objects.all()
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# DeadlineNotification ViewSet
+# ---------------------------------------------------------------------------
+
+class DeadlineNotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = DeadlineNotificationSerializer
+    queryset = DeadlineNotification.objects.all()
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
+
+
+# ---------------------------------------------------------------------------
+# DailyAnalytics ViewSet
+# ---------------------------------------------------------------------------
+
+class DailyAnalyticsViewSet(viewsets.ModelViewSet):
+    serializer_class = DailyAnalyticsSerializer
+
+    def get_queryset(self):
+        qs = DailyAnalytics.objects.all()
+        creator_id = self.request.query_params.get('creator_id')
+        if creator_id:
+            qs = qs.filter(creator_id=creator_id)
+        return qs
+
+    def get_permissions(self):
+        return [permissions.AllowAny()]
