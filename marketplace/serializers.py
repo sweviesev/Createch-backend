@@ -43,16 +43,28 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 # Creator Serializer
 # ---------------------------------------------------------------------------
 
+
+# Updated CreatorSerializer to include nested user info
 class CreatorSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+
     class Meta:
         model = Creator
         fields = [
-            'id', 'user_id', 'bio', 'skills', 'portfolio_url',
+            'id', 'user_id', 'user', 'bio', 'skills', 'portfolio_url',
             'experience_years', 'starting_price', 'turnaround_time',
             'custom_skills', 'verification_status', 'response_time',
             'cover_url', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+    def get_user(self, obj):
+        from .models import User
+        try:
+            user = User.objects.get(firebase_uid=obj.user_id)
+            return UserMinimalSerializer(user).data
+        except User.DoesNotExist:
+            return None
 
 
 # ---------------------------------------------------------------------------
@@ -86,11 +98,16 @@ class ServiceSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class OrderSerializer(serializers.ModelSerializer):
+    client_display_name = serializers.SerializerMethodField()
+    creator_display_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Order
         fields = [
             'id', 'client_id', 'creator_id', 'service_title', 'price',
-            'status', 'client_name', 'creator_name', 'image_url',
+            'status', 'client_name', 'creator_name',
+            'client_display_name', 'creator_display_name',
+            'image_url',
             'last_updated_by', 'preview_url', 'final_file_url',
             'delivery_url', 'delivery_note',
             'payment_method_used', 'payout_method_snapshot',
@@ -108,6 +125,22 @@ class OrderSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def _resolve_name(self, firebase_uid, fallback_name):
+        """Look up the user's display name from their firebase_uid."""
+        if not firebase_uid:
+            return fallback_name or 'Unknown'
+        try:
+            user = User.objects.get(firebase_uid=firebase_uid)
+            return user.display_name or user.email
+        except User.DoesNotExist:
+            return fallback_name or firebase_uid
+
+    def get_client_display_name(self, obj):
+        return self._resolve_name(obj.client_id, obj.client_name)
+
+    def get_creator_display_name(self, obj):
+        return self._resolve_name(obj.creator_id, obj.creator_name)
 
 
 class OrderStatusSerializer(serializers.ModelSerializer):
@@ -151,14 +184,32 @@ class ReviewSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class MessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+    receiver_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Message
         fields = [
-            'id', 'sender_id', 'receiver_id', 'content',
-            'is_read', 'media_url', 'is_deleted', 'service_data',
+            'id', 'sender_id', 'receiver_id', 'sender_name', 'receiver_name',
+            'content', 'is_read', 'media_url', 'is_deleted', 'service_data',
             'from_smart_match', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
+
+    def _resolve(self, uid):
+        if not uid:
+            return 'Unknown'
+        try:
+            user = User.objects.get(firebase_uid=uid)
+            return user.display_name or user.email
+        except User.DoesNotExist:
+            return uid
+
+    def get_sender_name(self, obj):
+        return self._resolve(obj.sender_id)
+
+    def get_receiver_name(self, obj):
+        return self._resolve(obj.receiver_id)
 
 
 # ---------------------------------------------------------------------------
