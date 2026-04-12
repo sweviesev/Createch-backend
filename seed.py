@@ -1,171 +1,150 @@
 """
-Seed script: creates admin superuser + sample creator user + sample data.
+Seed script: creates sample users with auth credentials + sample data.
 Run from project root:
     venv\Scripts\python.exe seed.py
 """
 import os
+import uuid
+
 import django
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'createch.settings')
 django.setup()
 
-from marketplace.models import User, Service, Order, Project, WalletTransaction
+from django.contrib.auth.hashers import make_password
 
-# --- Superuser (admin)
-if not User.objects.filter(email='admin@createch.com').exists():
-    admin = User.objects.create_superuser(
-        email='admin@createch.com',
-        password='Admin@1234',
-        first_name='Admin',
-        last_name='Createch',
+from marketplace.models import (
+    AuthCredential, Category, Creator, Order, Service, User,
+)
+
+
+def seed_user(email, password, first_name, last_name, role, phone=''):
+    """Create a User + AuthCredential pair (idempotent)."""
+    if AuthCredential.objects.filter(email=email).exists():
+        cred = AuthCredential.objects.get(email=email)
+        user = User.objects.get(firebase_uid=cred.firebase_uid)
+        print(f'  Already exists: {email}')
+        return user
+
+    firebase_uid = f'django_{uuid.uuid4().hex[:16]}'
+    full_name = f'{first_name} {last_name}'.strip()
+
+    user = User.objects.create(
+        firebase_uid=firebase_uid,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        full_name=full_name,
+        phone=phone,
+        role=role,
     )
-    print(f'Created superuser: {admin.email}')
+    AuthCredential.objects.create(
+        firebase_uid=firebase_uid,
+        email=email,
+        password_hash=make_password(password),
+    )
+    print(f'  Created: {email} (role={role})')
+    return user
+
+
+# ── Users ─────────────────────────────────────────────────────────────────
+print('=' * 60)
+print('CREATECH — SEEDING DATABASE')
+print('=' * 60)
+
+print('\n[Users]')
+admin_user = seed_user(
+    'admin@createch.com', 'Admin@1234',
+    'Admin', 'Createch', 'admin',
+)
+creator_user = seed_user(
+    'creator@createch.com', 'Creator@1234',
+    'Juan', 'Dela Cruz', 'creator', '09123456789',
+)
+client_user = seed_user(
+    'client@createch.com', 'Client@1234',
+    'Maria', 'Santos', 'client', '09987654321',
+)
+
+# ── Creator profile ───────────────────────────────────────────────────────
+print('\n[Creator Profile]')
+if not Creator.objects.filter(user_id=creator_user.firebase_uid).exists():
+    Creator.objects.create(
+        user_id=creator_user.firebase_uid,
+        bio='Professional graphic designer with 5 years of experience.',
+        skills='{logo design,branding,web design}',
+        experience_years='5',
+        starting_price='1500',
+        turnaround_time='3-5 days',
+        verification_status='verified',
+    )
+    print('  Created creator profile.')
 else:
-    admin = User.objects.get(email='admin@createch.com')
-    print(f'Superuser already exists: {admin.email}')
+    print('  Creator profile already exists.')
 
-# --- Creator user
-if not User.objects.filter(email='creator@createch.com').exists():
-    creator = User.objects.create_user(
-        email='creator@createch.com',
-        password='Creator@1234',
-        first_name='Juan',
-        last_name='Dela Cruz',
-        phone='09123456789',
-        role='creator',
-        is_verified=True,
-        wallet_balance=1500.00,
-    )
-    print(f'Created creator: {creator.email}')
+# ── Categories ────────────────────────────────────────────────────────────
+print('\n[Categories]')
+if not Category.objects.exists():
+    categories = [
+        ('Design', '🎨', '#6366F1'),
+        ('Development', '💻', '#10B981'),
+        ('Writing', '✍️', '#F59E0B'),
+        ('Marketing', '📢', '#EF4444'),
+        ('Video', '🎬', '#8B5CF6'),
+    ]
+    for label, icon, color in categories:
+        Category.objects.create(label=label, icon=icon, color=color)
+    print(f'  Created {len(categories)} categories.')
 else:
-    creator = User.objects.get(email='creator@createch.com')
-    print(f'Creator already exists: {creator.email}')
+    print('  Categories already exist.')
 
-# --- Client user
-if not User.objects.filter(email='client@createch.com').exists():
-    client = User.objects.create_user(
-        email='client@createch.com',
-        password='Client@1234',
-        first_name='Maria',
-        last_name='Santos',
-        phone='09987654321',
-        role='client',
-        is_verified=True,
-        wallet_balance=5000.00,
-    )
-    print(f'Created client: {client.email}')
+# ── Services ──────────────────────────────────────────────────────────────
+print('\n[Services]')
+if not Service.objects.filter(creator_id=creator_user.firebase_uid).exists():
+    services = [
+        ('Professional Logo Design', 'Logo Design', '2500', 'Design'),
+        ('Social Media Assets Pack', 'Social Media', '1500', 'Design'),
+        ('Website Mockup (Figma)', 'Web Mockup', '7500', 'Design'),
+    ]
+    for title, label, price, category in services:
+        Service.objects.create(
+            creator_id=creator_user.firebase_uid,
+            title=title,
+            label=label,
+            price=price,
+            category=category,
+        )
+    print(f'  Created {len(services)} services.')
 else:
-    client = User.objects.get(email='client@createch.com')
-    print(f'Client already exists: {client.email}')
+    print('  Services already exist.')
 
-# --- Services
-if not Service.objects.exists():
-    s1 = Service.objects.create(
-        creator=creator,
-        title='Professional Logo Design',
-        description='I will design a modern, professional logo for your business.',
-        price=2500.00,
-        category='design',
-        delivery_days=5,
-    )
-    s2 = Service.objects.create(
-        creator=creator,
-        title='Social Media Assets Pack',
-        description='Complete set of social media banners, posts, and story templates.',
-        price=1500.00,
-        category='design',
-        delivery_days=3,
-    )
-    s3 = Service.objects.create(
-        creator=creator,
-        title='Website Mockup (Figma)',
-        description='High-fidelity Figma mockup for your website — desktop and mobile.',
-        price=7500.00,
-        category='design',
-        delivery_days=7,
-    )
-    print('Created 3 sample services.')
+# ── Orders ────────────────────────────────────────────────────────────────
+print('\n[Orders]')
+if not Order.objects.filter(client_id=client_user.firebase_uid).exists():
+    orders = [
+        ('Professional Logo Design', '2500', 'completed'),
+        ('Website Mockup (Figma)', '7500', 'pending'),
+        ('Social Media Assets Pack', '1500', 'in_progress'),
+    ]
+    for title, price, order_status in orders:
+        Order.objects.create(
+            client_id=client_user.firebase_uid,
+            creator_id=creator_user.firebase_uid,
+            service_title=title,
+            price=price,
+            status=order_status,
+            client_name=client_user.full_name,
+            creator_name=creator_user.full_name,
+        )
+    print(f'  Created {len(orders)} orders.')
+else:
+    print('  Orders already exist.')
 
-# --- Orders
-if not Order.objects.exists():
-    Order.objects.create(
-        client=client,
-        creator=creator,
-        service_title='Professional Logo Design',
-        price=2500.00,
-        status='completed',
-        requirements='We need a blue/gold color scheme, modern style.',
-    )
-    Order.objects.create(
-        client=client,
-        creator=creator,
-        service_title='Website Mockup (Figma)',
-        price=7500.00,
-        status='pending',
-        requirements='E-commerce site for clothing brand.',
-    )
-    Order.objects.create(
-        client=client,
-        creator=creator,
-        service_title='Social Media Assets Pack',
-        price=1500.00,
-        status='in_progress',
-        requirements='For Instagram and Facebook.',
-    )
-    print('Created 3 sample orders.')
-
-# --- Projects
-if not Project.objects.exists():
-    Project.objects.create(
-        creator=creator,
-        title='Acme Corp Rebrand',
-        client_name='Acme Corporation',
-        status='In Progress',
-        budget=15000.00,
-        description='Full brand identity redesign including logo, colors, and typography.',
-    )
-    Project.objects.create(
-        creator=creator,
-        title='Santos E-Commerce Site',
-        client_name='Maria Santos',
-        status='Pending',
-        budget=25000.00,
-        description='Online store for handmade crafts.',
-    )
-    Project.objects.create(
-        creator=creator,
-        title='Dela Cruz Photography Portfolio',
-        client_name='Lito Dela Cruz',
-        status='Completed',
-        budget=8000.00,
-        description='Portfolio website for a professional photographer.',
-    )
-    print('Created 3 sample projects.')
-
-# --- Wallet transactions
-if not WalletTransaction.objects.exists():
-    WalletTransaction.objects.create(
-        user=creator,
-        transaction_type='earning',
-        amount=2500.00,
-        description='Payment for Professional Logo Design',
-    )
-    WalletTransaction.objects.create(
-        user=client,
-        transaction_type='deposit',
-        amount=5000.00,
-        description='Initial wallet top-up',
-    )
-    WalletTransaction.objects.create(
-        user=client,
-        transaction_type='payment',
-        amount=2500.00,
-        description='Payment for Professional Logo Design',
-    )
-    print('Created 3 sample wallet transactions.')
-
-print('\nSeeding complete!')
-print('--- Test accounts ---')
+# ── Summary ───────────────────────────────────────────────────────────────
+print('\n' + '=' * 60)
+print('Seeding complete!')
+print('=' * 60)
+print('\n--- Test accounts ---')
 print('Admin:   admin@createch.com   / Admin@1234')
 print('Creator: creator@createch.com / Creator@1234')
 print('Client:  client@createch.com  / Client@1234')

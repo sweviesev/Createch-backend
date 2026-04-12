@@ -1,13 +1,13 @@
 """
 Quick API test script — runs while dev server is running.
-Tests: register, login (JWT), GET /api/projects/, GET /api/orders/, GET /api/services/
+Tests: register, login (JWT), /api/auth/me/, GET /api/services/, GET /api/orders/
 """
 import json
 import urllib.request
 import urllib.error
-import urllib.parse
 
 BASE = 'http://127.0.0.1:8000/api'
+
 
 def post(path, data, token=None):
     body = json.dumps(data).encode()
@@ -23,15 +23,28 @@ def post(path, data, token=None):
         with urllib.request.urlopen(req) as resp:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        body = e.read()
+        try:
+            return e.code, json.loads(body)
+        except json.JSONDecodeError:
+            return e.code, {'error': body.decode()[:200]}
 
-def get(path, token):
-    req = urllib.request.Request(f'{BASE}{path}', headers={'Authorization': f'Bearer {token}'})
+
+def get(path, token=None):
+    headers = {}
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    req = urllib.request.Request(f'{BASE}{path}', headers=headers)
     try:
         with urllib.request.urlopen(req) as resp:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        body = e.read()
+        try:
+            return e.code, json.loads(body)
+        except json.JSONDecodeError:
+            return e.code, {'error': body.decode()[:200]}
+
 
 print('=' * 60)
 print('CREATECH API — ENDPOINT TESTING')
@@ -44,10 +57,9 @@ code, resp = post('/auth/register/', {
     'first_name': 'API',
     'last_name': 'Tester',
     'phone': '09555123456',
-    'birth_date': '2000-03-15',
     'password': 'Apitest@1234',
     'confirm_password': 'Apitest@1234',
-    'role': 'creator',
+    'role': 'client',
 })
 print(f'  Status: {code}')
 print(f'  Response: {json.dumps(resp, indent=2)[:300]}')
@@ -62,35 +74,32 @@ print(f'  Status: {code}')
 token = resp.get('access', '')
 print(f'  Access token (first 40 chars): {token[:40]}...')
 
-# 3. Profile
+# 3. Profile (authenticated)
 print('\n[3] GET /api/auth/me/')
 code, resp = get('/auth/me/', token)
 print(f'  Status: {code}')
 print(f'  User: {resp.get("email")} | Role: {resp.get("role")}')
 
-# 4. Projects
-print('\n[4] GET /api/projects/')
-code, resp = get('/projects/', token)
+# 4. Services (public)
+print('\n[4] GET /api/services/')
+code, resp = get('/services/')
 print(f'  Status: {code}')
-print(f'  Count: {resp.get("count")} | Results sample: {resp.get("results", [{}])[0].get("title", "N/A")}')
+results = resp.get('results', [])
+print(f'  Count: {resp.get("count")} | First: {results[0].get("title", "N/A") if results else "N/A"}')
 
 # 5. Orders
 print('\n[5] GET /api/orders/')
 code, resp = get('/orders/', token)
 print(f'  Status: {code}')
-print(f'  Count: {resp.get("count")} | Results sample: {resp.get("results", [{}])[0].get("service_title", "N/A")}')
+results = resp.get('results', [])
+print(f'  Count: {resp.get("count")} | First: {results[0].get("service_title", "N/A") if results else "N/A"}')
 
-# 6. Services
-print('\n[6] GET /api/services/')
-code, resp = get('/services/', token)
+# 6. Users
+print('\n[6] GET /api/users/')
+code, resp = get('/users/')
 print(f'  Status: {code}')
-print(f'  Count: {resp.get("count")} | Results sample: {resp.get("results", [{}])[0].get("title", "N/A")}')
-
-# 7. Wallet
-print('\n[7] GET /api/wallet/')
-code, resp = get('/wallet/', token)
-print(f'  Status: {code}')
-print(f'  Balance: ₱{resp.get("balance")} | Transactions: {len(resp.get("transactions", []))}')
+results = resp.get('results', [])
+print(f'  Count: {resp.get("count")} | First: {results[0].get("email", "N/A") if results else "N/A"}')
 
 print('\n' + '=' * 60)
 print('All tests complete!')

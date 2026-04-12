@@ -91,7 +91,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # the User model is an unmanaged model mapping to the Supabase "users" table.
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'marketplace.authentication.JWTAuthentication',
+    ],
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.AllowAny',
     ),

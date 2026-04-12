@@ -61,6 +61,32 @@ class User(models.Model):
         parts = [p for p in [self.first_name, self.last_name] if p]
         return ' '.join(parts) if parts else (self.email or self.firebase_uid)
 
+    @property
+    def is_authenticated(self):
+        """Required by DRF's IsAuthenticated permission."""
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# AuthCredential  (Django-managed — stores login email + hashed password)
+# ---------------------------------------------------------------------------
+class AuthCredential(models.Model):
+    firebase_uid = models.TextField(unique=True)
+    email = models.EmailField(unique=True)
+    password_hash = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'auth_credentials'
+        managed = True  # Django manages this table (migrations create it)
+
+    def __str__(self):
+        return f'Auth: {self.email}'
+
 
 # ---------------------------------------------------------------------------
 # Creator  (extended profile for creator users)

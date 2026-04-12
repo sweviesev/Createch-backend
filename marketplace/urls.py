@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .auth_views import LoginView, MeView, RegisterView
 from .views import (
     BlockViewSet,
     CategoryViewSet,
@@ -43,6 +44,11 @@ router.register(r'deadline-notifications', DeadlineNotificationViewSet, basename
 router.register(r'daily-analytics', DailyAnalyticsViewSet, basename='daily-analytics')
 
 urlpatterns = [
+    # Authentication endpoints
+    path('auth/register/', RegisterView.as_view(), name='auth-register'),
+    path('auth/login/', LoginView.as_view(), name='auth-login'),
+    path('auth/me/', MeView.as_view(), name='auth-me'),
+
     # ViewSet routes
     path('', include(router.urls)),
 ]

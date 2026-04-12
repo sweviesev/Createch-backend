@@ -1,10 +1,19 @@
 from django.contrib import admin
 
 from .models import (
-    Block, Category, Creator, DailyAnalytics, DeadlineNotification,
-    Follow, Match, Message, Order, OrderTimeline, PaymentMethod,
-    Report, Review, Service, SupportTicket, User, UserWallet, Withdrawal,
+    AuthCredential, Block, Category, Creator, DailyAnalytics,
+    DeadlineNotification, Follow, Match, Message, Order, OrderTimeline,
+    PaymentMethod, Report, Review, Service, SupportTicket, User,
+    UserWallet, Withdrawal,
 )
+
+
+@admin.register(AuthCredential)
+class AuthCredentialAdmin(admin.ModelAdmin):
+    list_display = ['email', 'firebase_uid', 'created_at']
+    search_fields = ['email', 'firebase_uid']
+    ordering = ['-created_at']
+    readonly_fields = ['created_at', 'password_hash']
 
 
 @admin.register(User)
