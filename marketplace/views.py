@@ -33,16 +33,55 @@ from .serializers import (
 
 
 # ---------------------------------------------------------------------------
+# Mixin – shared query-param filtering + search
+# ---------------------------------------------------------------------------
+
+class FilterMixin:
+    """
+    Generic mixin: reads `filter_fields` from the view class and applies
+    exact-match filters from query params.  Also supports `?search=` if
+    `search_fields` is defined (case-insensitive icontains across all fields).
+    """
+    filter_fields: list[str] = []
+    search_fields: list[str] = []
+
+    def apply_filters(self, qs):
+        for field in self.filter_fields:
+            value = self.request.query_params.get(field)
+            if value:
+                qs = qs.filter(**{field: value})
+
+        search = self.request.query_params.get('search', '').strip()
+        if search and self.search_fields:
+            q = db_models.Q()
+            for sf in self.search_fields:
+                q |= db_models.Q(**{f'{sf}__icontains': search})
+            qs = qs.filter(q)
+
+        # Optional status filter
+        status_val = self.request.query_params.get('status')
+        if status_val and hasattr(qs.model, 'status'):
+            qs = qs.filter(status=status_val)
+
+        return qs
+
+
+# ---------------------------------------------------------------------------
 # User ViewSet
 # ---------------------------------------------------------------------------
 
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = UserSerializer
     queryset = User.objects.all()
+    filter_fields = ['role']
+    search_fields = ['full_name', 'email', 'first_name', 'last_name']
+
+    def get_queryset(self):
+        return self.apply_filters(
+            User.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
-            return [permissions.AllowAny()]
         return [permissions.AllowAny()]
 
     def get_object(self):
@@ -70,9 +109,16 @@ class UserViewSet(viewsets.ModelViewSet):
 # Creator ViewSet
 # ---------------------------------------------------------------------------
 
-class CreatorViewSet(viewsets.ModelViewSet):
+class CreatorViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = CreatorSerializer
     queryset = Creator.objects.all()
+    filter_fields = ['user_id', 'verification_status']
+    search_fields = ['bio', 'skills']
+
+    def get_queryset(self):
+        return self.apply_filters(
+            Creator.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -93,7 +139,7 @@ class CreatorViewSet(viewsets.ModelViewSet):
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
-    queryset = Category.objects.all()
+    queryset = Category.objects.all().order_by('label')
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -103,18 +149,15 @@ class CategoryViewSet(viewsets.ModelViewSet):
 # Service ViewSet
 # ---------------------------------------------------------------------------
 
-class ServiceViewSet(viewsets.ModelViewSet):
+class ServiceViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = ServiceSerializer
+    filter_fields = ['creator_id', 'category']
+    search_fields = ['title', 'label', 'description']
 
     def get_queryset(self):
-        qs = Service.objects.filter(is_deleted=False)
-        category = self.request.query_params.get('category')
-        if category:
-            qs = qs.filter(category=category)
-        creator_id = self.request.query_params.get('creator_id')
-        if creator_id:
-            qs = qs.filter(creator_id=creator_id)
-        return qs
+        return self.apply_filters(
+            Service.objects.filter(is_deleted=False).order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -124,18 +167,15 @@ class ServiceViewSet(viewsets.ModelViewSet):
 # Order ViewSet
 # ---------------------------------------------------------------------------
 
-class OrderViewSet(viewsets.ModelViewSet):
+class OrderViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = OrderSerializer
+    filter_fields = ['client_id', 'creator_id']
+    search_fields = ['service_title']
 
     def get_queryset(self):
-        qs = Order.objects.filter(is_deleted=False)
-        client_id = self.request.query_params.get('client_id')
-        creator_id = self.request.query_params.get('creator_id')
-        if client_id:
-            qs = qs.filter(client_id=client_id)
-        if creator_id:
-            qs = qs.filter(creator_id=creator_id)
-        return qs
+        return self.apply_filters(
+            Order.objects.filter(is_deleted=False).order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -154,15 +194,14 @@ class OrderViewSet(viewsets.ModelViewSet):
 # OrderTimeline ViewSet
 # ---------------------------------------------------------------------------
 
-class OrderTimelineViewSet(viewsets.ModelViewSet):
+class OrderTimelineViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = OrderTimelineSerializer
+    filter_fields = ['order_id', 'actor_id']
 
     def get_queryset(self):
-        qs = OrderTimeline.objects.all()
-        order_id = self.request.query_params.get('order_id')
-        if order_id:
-            qs = qs.filter(order_id=order_id)
-        return qs
+        return self.apply_filters(
+            OrderTimeline.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -172,15 +211,14 @@ class OrderTimelineViewSet(viewsets.ModelViewSet):
 # Review ViewSet
 # ---------------------------------------------------------------------------
 
-class ReviewViewSet(viewsets.ModelViewSet):
+class ReviewViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = ReviewSerializer
+    filter_fields = ['reviewee_id', 'reviewer_id', 'order_id']
 
     def get_queryset(self):
-        qs = Review.objects.all()
-        reviewee_id = self.request.query_params.get('reviewee_id')
-        if reviewee_id:
-            qs = qs.filter(reviewee_id=reviewee_id)
-        return qs
+        return self.apply_filters(
+            Review.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -190,8 +228,9 @@ class ReviewViewSet(viewsets.ModelViewSet):
 # Message ViewSet
 # ---------------------------------------------------------------------------
 
-class MessageViewSet(viewsets.ModelViewSet):
+class MessageViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = MessageSerializer
+    search_fields = ['content']
 
     def get_queryset(self):
         qs = Message.objects.filter(is_deleted=False)
@@ -200,7 +239,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             qs = qs.filter(
                 db_models.Q(sender_id=user_id) | db_models.Q(receiver_id=user_id)
             )
-        return qs
+        return qs.order_by('created_at')
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -210,18 +249,14 @@ class MessageViewSet(viewsets.ModelViewSet):
 # Follow ViewSet
 # ---------------------------------------------------------------------------
 
-class FollowViewSet(viewsets.ModelViewSet):
+class FollowViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = FollowSerializer
+    filter_fields = ['follower_id', 'following_id']
 
     def get_queryset(self):
-        qs = Follow.objects.all()
-        follower_id = self.request.query_params.get('follower_id')
-        following_id = self.request.query_params.get('following_id')
-        if follower_id:
-            qs = qs.filter(follower_id=follower_id)
-        if following_id:
-            qs = qs.filter(following_id=following_id)
-        return qs
+        return self.apply_filters(
+            Follow.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -231,15 +266,14 @@ class FollowViewSet(viewsets.ModelViewSet):
 # Block ViewSet
 # ---------------------------------------------------------------------------
 
-class BlockViewSet(viewsets.ModelViewSet):
+class BlockViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = BlockSerializer
+    filter_fields = ['blocker_id']
 
     def get_queryset(self):
-        qs = Block.objects.all()
-        blocker_id = self.request.query_params.get('blocker_id')
-        if blocker_id:
-            qs = qs.filter(blocker_id=blocker_id)
-        return qs
+        return self.apply_filters(
+            Block.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -249,9 +283,14 @@ class BlockViewSet(viewsets.ModelViewSet):
 # Report ViewSet
 # ---------------------------------------------------------------------------
 
-class ReportViewSet(viewsets.ModelViewSet):
+class ReportViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = ReportSerializer
-    queryset = Report.objects.all()
+    filter_fields = ['reporter_id', 'reported_user_id']
+
+    def get_queryset(self):
+        return self.apply_filters(
+            Report.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -261,18 +300,14 @@ class ReportViewSet(viewsets.ModelViewSet):
 # Match ViewSet
 # ---------------------------------------------------------------------------
 
-class MatchViewSet(viewsets.ModelViewSet):
+class MatchViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = MatchSerializer
+    filter_fields = ['client_id', 'creator_id']
 
     def get_queryset(self):
-        qs = Match.objects.all()
-        client_id = self.request.query_params.get('client_id')
-        creator_id = self.request.query_params.get('creator_id')
-        if client_id:
-            qs = qs.filter(client_id=client_id)
-        if creator_id:
-            qs = qs.filter(creator_id=creator_id)
-        return qs
+        return self.apply_filters(
+            Match.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -282,15 +317,14 @@ class MatchViewSet(viewsets.ModelViewSet):
 # PaymentMethod ViewSet
 # ---------------------------------------------------------------------------
 
-class PaymentMethodViewSet(viewsets.ModelViewSet):
+class PaymentMethodViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = PaymentMethodSerializer
+    filter_fields = ['user_id']
 
     def get_queryset(self):
-        qs = PaymentMethod.objects.all()
-        user_id = self.request.query_params.get('user_id')
-        if user_id:
-            qs = qs.filter(user_id=user_id)
-        return qs
+        return self.apply_filters(
+            PaymentMethod.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -300,15 +334,15 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
 # SupportTicket ViewSet
 # ---------------------------------------------------------------------------
 
-class SupportTicketViewSet(viewsets.ModelViewSet):
+class SupportTicketViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = SupportTicketSerializer
+    filter_fields = ['user_id', 'status', 'category', 'user_role']
+    search_fields = ['message', 'email', 'ticket_number']
 
     def get_queryset(self):
-        qs = SupportTicket.objects.all()
-        user_id = self.request.query_params.get('user_id')
-        if user_id:
-            qs = qs.filter(user_id=user_id)
-        return qs
+        return self.apply_filters(
+            SupportTicket.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -318,15 +352,14 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
 # UserWallet ViewSet
 # ---------------------------------------------------------------------------
 
-class UserWalletViewSet(viewsets.ModelViewSet):
+class UserWalletViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = UserWalletSerializer
+    filter_fields = ['user_id']
 
     def get_queryset(self):
-        qs = UserWallet.objects.all()
-        user_id = self.request.query_params.get('user_id')
-        if user_id:
-            qs = qs.filter(user_id=user_id)
-        return qs
+        return self.apply_filters(
+            UserWallet.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -336,15 +369,14 @@ class UserWalletViewSet(viewsets.ModelViewSet):
 # Withdrawal ViewSet
 # ---------------------------------------------------------------------------
 
-class WithdrawalViewSet(viewsets.ModelViewSet):
+class WithdrawalViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = WithdrawalSerializer
+    filter_fields = ['user_id', 'status']
 
     def get_queryset(self):
-        qs = Withdrawal.objects.all()
-        user_id = self.request.query_params.get('user_id')
-        if user_id:
-            qs = qs.filter(user_id=user_id)
-        return qs
+        return self.apply_filters(
+            Withdrawal.objects.all().order_by('-created_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -354,9 +386,14 @@ class WithdrawalViewSet(viewsets.ModelViewSet):
 # DeadlineNotification ViewSet
 # ---------------------------------------------------------------------------
 
-class DeadlineNotificationViewSet(viewsets.ModelViewSet):
+class DeadlineNotificationViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = DeadlineNotificationSerializer
-    queryset = DeadlineNotification.objects.all()
+    filter_fields = ['sent_to', 'order']
+
+    def get_queryset(self):
+        return self.apply_filters(
+            DeadlineNotification.objects.all().order_by('-sent_at')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
@@ -366,15 +403,14 @@ class DeadlineNotificationViewSet(viewsets.ModelViewSet):
 # DailyAnalytics ViewSet
 # ---------------------------------------------------------------------------
 
-class DailyAnalyticsViewSet(viewsets.ModelViewSet):
+class DailyAnalyticsViewSet(FilterMixin, viewsets.ModelViewSet):
     serializer_class = DailyAnalyticsSerializer
+    filter_fields = ['creator_id']
 
     def get_queryset(self):
-        qs = DailyAnalytics.objects.all()
-        creator_id = self.request.query_params.get('creator_id')
-        if creator_id:
-            qs = qs.filter(creator_id=creator_id)
-        return qs
+        return self.apply_filters(
+            DailyAnalytics.objects.all().order_by('-date')
+        )
 
     def get_permissions(self):
         return [permissions.AllowAny()]
