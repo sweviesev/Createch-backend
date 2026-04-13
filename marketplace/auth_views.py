@@ -1,6 +1,7 @@
 """
 Authentication views: Register, Login, Me.
 Uses PyJWT for token generation and Django's password hashers for security.
+Includes rate limiting to prevent brute-force attacks.
 """
 
 import uuid as _uuid
@@ -12,11 +13,19 @@ from django.contrib.auth.hashers import check_password, make_password
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from .authentication import JWTAuthentication
 from .models import AuthCredential, Creator, User
 from .serializers import UserSerializer
+
+
+# ── Rate-limit scope for login / register ─────────────────────────────────
+
+class LoginRateThrottle(AnonRateThrottle):
+    """Limit login/register attempts to 5 per minute per IP."""
+    scope = 'login'
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -38,8 +47,10 @@ class RegisterView(APIView):
     """
     POST /api/auth/register/
     Creates a new user account with hashed password and returns a JWT.
+    Rate-limited to 5 attempts per minute.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         email = request.data.get('email', '').strip()
@@ -120,8 +131,10 @@ class LoginView(APIView):
     """
     POST /api/auth/login/
     Authenticates with email + password and returns a JWT.
+    Rate-limited to 5 attempts per minute to prevent brute-force attacks.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         email = request.data.get('email', '').strip()

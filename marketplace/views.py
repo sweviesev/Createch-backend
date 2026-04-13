@@ -9,6 +9,7 @@ from .models import (
     Follow, Match, Message, Order, OrderTimeline, PaymentMethod,
     Report, Review, Service, SupportTicket, User, UserWallet, Withdrawal,
 )
+from .permissions import IsAdminUser, IsAuthenticatedOrReadOnly, IsOwnerOrAdmin
 from .serializers import (
     BlockSerializer,
     CategorySerializer,
@@ -82,7 +83,10 @@ class UserViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """List/retrieve require auth; create/update/delete require admin."""
+        if self.action in ('list', 'retrieve'):
+            return [permissions.IsAuthenticated()]
+        return [IsAdminUser()]
 
     def get_object(self):
         """Allow lookup by firebase_uid as well as pk."""
@@ -121,7 +125,10 @@ class CreatorViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Public read for browsing creators; write requires auth + ownership."""
+        if self.action in ('list', 'retrieve', 'by_uid'):
+            return [IsAuthenticatedOrReadOnly()]
+        return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
 
     @action(detail=False, methods=['get'], url_path='by-uid/(?P<uid>[^/.]+)')
     def by_uid(self, request, uid=None):
@@ -142,7 +149,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all().order_by('label')
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Categories are public to read; only admins can create/edit/delete."""
+        if self.action in ('list', 'retrieve'):
+            return [permissions.AllowAny()]
+        return [IsAdminUser()]
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +170,10 @@ class ServiceViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Public read for browsing services; write requires auth + ownership."""
+        if self.action in ('list', 'retrieve'):
+            return [IsAuthenticatedOrReadOnly()]
+        return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +191,10 @@ class OrderViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Authenticated users can list/create; object-level checks for modify."""
+        if self.action in ('list', 'retrieve', 'create'):
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
 
     @action(detail=True, methods=['post'], url_path='update_status')
     def update_status(self, request, pk=None):
@@ -204,7 +220,8 @@ class OrderTimelineViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Authenticated users only."""
+        return [permissions.IsAuthenticated()]
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +238,10 @@ class ReviewViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Public read for reviews; write requires auth."""
+        if self.action in ('list', 'retrieve'):
+            return [IsAuthenticatedOrReadOnly()]
+        return [permissions.IsAuthenticated()]
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +262,8 @@ class MessageViewSet(FilterMixin, viewsets.ModelViewSet):
         return qs.order_by('created_at')
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Messages require authentication; object access checks ownership."""
+        return [permissions.IsAuthenticated()]
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +280,8 @@ class FollowViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Authenticated users only."""
+        return [permissions.IsAuthenticated()]
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +298,8 @@ class BlockViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Authenticated users only."""
+        return [permissions.IsAuthenticated()]
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +316,10 @@ class ReportViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Create requires auth; list/manage requires admin."""
+        if self.action == 'create':
+            return [permissions.IsAuthenticated()]
+        return [IsAdminUser()]
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +336,8 @@ class MatchViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Authenticated users only."""
+        return [permissions.IsAuthenticated()]
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +354,8 @@ class PaymentMethodViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Sensitive financial data — authenticated + ownership check."""
+        return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +373,10 @@ class SupportTicketViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Create requires auth; list/manage requires auth + ownership/admin."""
+        if self.action == 'create':
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +393,8 @@ class UserWalletViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Sensitive financial data — authenticated + ownership check."""
+        return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +411,8 @@ class WithdrawalViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Sensitive financial data — authenticated + ownership check."""
+        return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +429,8 @@ class DeadlineNotificationViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Authenticated users only."""
+        return [permissions.IsAuthenticated()]
 
 
 # ---------------------------------------------------------------------------
@@ -413,4 +447,5 @@ class DailyAnalyticsViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        return [permissions.AllowAny()]
+        """Authenticated users only."""
+        return [permissions.IsAuthenticated()]
