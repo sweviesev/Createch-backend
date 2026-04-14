@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 load_dotenv(override=True)  # Load .env file into environment
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+USE_SQLITE = os.environ.get('USE_SQLITE', 'False').lower() in ('true', '1', 'yes')
+ALLOW_ALL_CORS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', '').lower() in ('true', '1', 'yes')
 
 # ---------------------------------------------------------------------------
 # Security — SECRET_KEY must be set in .env; no insecure fallback
@@ -66,21 +68,29 @@ TEMPLATES = [
 WSGI_APPLICATION = 'createch.wsgi.application'
 
 # ---------------------------------------------------------------------------
-# Database — connect to Supabase PostgreSQL (credentials from .env only)
+# Database — PostgreSQL by default, SQLite available for local dev
 # ---------------------------------------------------------------------------
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME'),
-        'USER': os.environ.get('DB_USER'),
-        'PASSWORD': os.environ.get('DB_PASSWORD'),
-        'HOST': os.environ.get('DB_HOST'),
-        'PORT': os.environ.get('DB_PORT', '5432'),
-        'OPTIONS': {
-            'sslmode': 'require',
-        },
+if USE_SQLITE:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME'),
+            'USER': os.environ.get('DB_USER'),
+            'PASSWORD': os.environ.get('DB_PASSWORD'),
+            'HOST': os.environ.get('DB_HOST'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+            'OPTIONS': {
+                'sslmode': 'require',
+            },
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -130,7 +140,7 @@ REST_FRAMEWORK = {
 # ---------------------------------------------------------------------------
 # CORS — restrict to known frontend origins
 # ---------------------------------------------------------------------------
-CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_ALL_ORIGINS = ALLOW_ALL_CORS or USE_SQLITE
 CORS_ALLOWED_ORIGINS = os.environ.get(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081',

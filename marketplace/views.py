@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models as db_models
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -83,9 +84,11 @@ class UserViewSet(FilterMixin, viewsets.ModelViewSet):
         )
 
     def get_permissions(self):
-        """List/retrieve require auth; create/update/delete require admin."""
+        """Allow self-service profile updates while keeping admin-only create/delete."""
         if self.action in ('list', 'retrieve'):
             return [permissions.IsAuthenticated()]
+        if self.action in ('update', 'partial_update'):
+            return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
         return [IsAdminUser()]
 
     def get_object(self):
@@ -93,7 +96,7 @@ class UserViewSet(FilterMixin, viewsets.ModelViewSet):
         lookup = self.kwargs.get(self.lookup_field)
         try:
             return User.objects.get(pk=lookup)
-        except (User.DoesNotExist, ValueError):
+        except (User.DoesNotExist, ValueError, ValidationError):
             return User.objects.get(firebase_uid=lookup)
 
     @action(detail=True, methods=['post'])

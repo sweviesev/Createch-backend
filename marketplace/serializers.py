@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from rest_framework import serializers
 
 from .models import (
@@ -217,10 +219,28 @@ class MessageSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class FollowSerializer(serializers.ModelSerializer):
+    follower_name = serializers.SerializerMethodField()
+    following_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Follow
-        fields = ['id', 'follower_id', 'following_id', 'created_at']
+        fields = ['id', 'follower_id', 'following_id', 'follower_name', 'following_name', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+    def _resolve_name(self, uid):
+        if not uid:
+            return None
+        try:
+            user = User.objects.get(firebase_uid=uid)
+            return user.display_name or user.email
+        except User.DoesNotExist:
+            return uid
+
+    def get_follower_name(self, obj):
+        return self._resolve_name(obj.follower_id)
+
+    def get_following_name(self, obj):
+        return self._resolve_name(obj.following_id)
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +302,14 @@ class SupportTicketSerializer(serializers.ModelSerializer):
             'message', 'status', 'priority', 'user_role', 'user_info',
             'admin_response', 'resolved_at', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'ticket_number', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        if not validated_data.get('ticket_number'):
+            validated_data['ticket_number'] = f"SUP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        validated_data.setdefault('status', 'open')
+        validated_data.setdefault('priority', 'normal')
+        return super().create(validated_data)
 
 
 # ---------------------------------------------------------------------------
